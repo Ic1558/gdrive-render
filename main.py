@@ -1,4 +1,5 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
+from typing import List
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
@@ -23,13 +24,12 @@ async def upload_to_drive(file: UploadFile = File(...)):
 
         body = {
             "name": file.filename
-            # ลบ parents ออก → อัปโหลดเข้า Root ทันที
         }
 
         uploaded = drive_service.files().create(
             body=body,
             media_body=media,
-            fields="id, webViewLink",
+            fields="id,webViewLink",
             supportsAllDrives=True
         ).execute()
 
@@ -41,3 +41,34 @@ async def upload_to_drive(file: UploadFile = File(...)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.post("/upload-multi")
+async def upload_multiple_files(files: List[UploadFile] = File(...)):
+    results = []
+
+    try:
+        for file in files:
+            file_content = await file.read()
+            media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=file.content_type, resumable=True)
+
+            body = {
+                "name": file.filename
+            }
+
+            uploaded = drive_service.files().create(
+                body=body,
+                media_body=media,
+                fields="id,webViewLink",
+                supportsAllDrives=True
+            ).execute()
+
+            results.append({
+                "filename": file.filename,
+                "file_id": uploaded.get("id"),
+                "view_link": uploaded.get("webViewLink")
+            })
+
+        return {"uploaded_files": results}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Multi-upload failed: {str(e)}")
