@@ -15,4 +15,4 @@ drive_service = build('drive', 'v3', credentials=creds)
 @app.post("/upload")
 async def upload_to_drive(file: UploadFile = File(...)):
     file_content = await file.read()
-    media = MediaIoBaseUpload(io.BytesIO(file_content), mim_
+    media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=file.content_type)
