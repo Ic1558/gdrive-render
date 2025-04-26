@@ -4,6 +4,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io, os, json
+import httpx
 
 app = FastAPI()
 
@@ -15,6 +16,24 @@ if not SERVICE_ACCOUNT_JSON:
 SERVICE_ACCOUNT_INFO = json.loads(SERVICE_ACCOUNT_JSON)
 creds = service_account.Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO)
 drive_service = build('drive', 'v3', credentials=creds)
+
+# Telegram config
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+async def send_telegram_message(text: str):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML"
+    }
+
+    async with httpx.AsyncClient() as client:
+        await client.post(url, json=payload)
 
 @app.post("/upload")
 async def upload_to_drive(file: UploadFile = File(...)):
@@ -32,6 +51,8 @@ async def upload_to_drive(file: UploadFile = File(...)):
             fields="id,webViewLink",
             supportsAllDrives=True
         ).execute()
+
+        await send_telegram_message(f"📂 Uploaded: {file.filename}\n🔗 {uploaded.get('webViewLink')}")
 
         return {
             "filename": file.filename,
@@ -67,6 +88,8 @@ async def upload_multiple_files(files: List[UploadFile] = File(...)):
                 "file_id": uploaded.get("id"),
                 "view_link": uploaded.get("webViewLink")
             })
+
+            await send_telegram_message(f"📂 Uploaded: {file.filename}\n🔗 {uploaded.get('webViewLink')}")
 
         return {"uploaded_files": results}
 
