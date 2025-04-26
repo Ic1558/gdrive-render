@@ -6,11 +6,11 @@ import io, os
 
 app = FastAPI()
 
-SERVICE_ACCOUNT_JSON = "service_account.json"
-FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")
+import json
 
-creds = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_JSON)
-drive_service = build('drive', 'v3', credentials=creds)
+SERVICE_ACCOUNT_INFO = json.loads(os.getenv("SERVICE_ACCOUNT_JSON_CONTENT"))
+creds = service_account.Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO)
+
 
 @app.post("/upload")
 async def upload_to_drive(file: UploadFile = File(...)):
