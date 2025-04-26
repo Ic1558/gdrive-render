@@ -24,7 +24,7 @@ if not FOLDER_ID:
 async def upload_to_drive(file: UploadFile = File(...)):
     try:
         file_content = await file.read()
-        media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=file.content_type)
+        media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=file.content_type, resumable=True)
 
         body = {
             "name": file.filename,
@@ -34,7 +34,8 @@ async def upload_to_drive(file: UploadFile = File(...)):
         uploaded = drive_service.files().create(
             body=body,
             media_body=media,
-            fields="id,webViewLink"
+            fields="id, webViewLink",
+            supportsAllDrives=True
         ).execute()
 
         return {
