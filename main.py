@@ -15,11 +15,6 @@ SERVICE_ACCOUNT_INFO = json.loads(SERVICE_ACCOUNT_JSON)
 creds = service_account.Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO)
 drive_service = build('drive', 'v3', credentials=creds)
 
-# Load GDrive Folder ID
-FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")
-if not FOLDER_ID:
-    raise Exception("GDRIVE_FOLDER_ID not found in environment variables")
-
 @app.post("/upload")
 async def upload_to_drive(file: UploadFile = File(...)):
     try:
@@ -27,8 +22,8 @@ async def upload_to_drive(file: UploadFile = File(...)):
         media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=file.content_type, resumable=True)
 
         body = {
-            "name": file.filename,
-            "parents": [FOLDER_ID]
+            "name": file.filename
+            # ลบ parents ออก → อัปโหลดเข้า Root ทันที
         }
 
         uploaded = drive_service.files().create(
