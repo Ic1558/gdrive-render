@@ -1,97 +1,79 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+import os
+import aiohttp
+import asyncio
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from pydantic import BaseModel
 from typing import List
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
-import io, os, json
-import httpx
+import io
 
 app = FastAPI()
 
-# Load credentials
-SERVICE_ACCOUNT_JSON = os.getenv("SERVICE_ACCOUNT_JSON_CONTENT")
-if not SERVICE_ACCOUNT_JSON:
-    raise Exception("SERVICE_ACCOUNT_JSON_CONTENT not found in environment variables")
+# === CONFIG ===
+GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")  # ดึง Folder ID จาก ENV
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # ดึง Telegram Token จาก ENV
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # ดึง Telegram Chat ID จาก ENV
+GDRIVE_CREDENTIAL_PATH = "/etc/secrets/gdrive_sa.json"  # โหลดไฟล์ Secret
+GDRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
-SERVICE_ACCOUNT_INFO = json.loads(SERVICE_ACCOUNT_JSON)
-creds = service_account.Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO)
-drive_service = build('drive', 'v3', credentials=creds)
+# === Helper Functions ===
 
-# Telegram config
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+def get_drive_service():
+    credentials = service_account.Credentials.from_service_account_file(
+        GDRIVE_CREDENTIAL_PATH, scopes=GDRIVE_SCOPES
+    )
+    return build("drive", "v3", credentials=credentials)
 
-async def send_telegram_message(text: str):
+async def send_telegram_message(message: str):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+    async with aiohttp.ClientSession() as session:
+        await session.post(url, data=payload)
+
+async def upload_file_to_gdrive(file: UploadFile) -> str:
+    service = get_drive_service()
+    file_metadata = {
+        "name": file.filename,
+        "parents": [GDRIVE_FOLDER_ID] if GDRIVE_FOLDER_ID else []
     }
+    media = MediaIoBaseUpload(io.BytesIO(await file.read()), mimetype=file.content_type)
+    uploaded_file = service.files().create(body=file_metadata, media_body=media, fields="id,webViewLink").execute()
+    file_id = uploaded_file.get("id")
+    return f"https://drive.google.com/uc?id={file_id}&export=download"
 
-    async with httpx.AsyncClient() as client:
-        await client.post(url, json=payload)
+# === API Models ===
 
-@app.post("/upload")
-async def upload_to_drive(file: UploadFile = File(...)):
+class UploadResponse(BaseModel):
+    files: List[str]
+
+# === Main Endpoints ===
+
+@app.post("/upload/gdrive", response_model=UploadResponse)
+async def upload_gdrive(files: List[UploadFile] = File(...)):
     try:
-        file_content = await file.read()
-        media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=file.content_type, resumable=True)
-
-        body = {
-            "name": file.filename
-        }
-
-        uploaded = drive_service.files().create(
-            body=body,
-            media_body=media,
-            fields="id,webViewLink",
-            supportsAllDrives=True
-        ).execute()
-
-        await send_telegram_message(f"📂 Uploaded: {file.filename}\n🔗 {uploaded.get('webViewLink')}")
-
-        return {
-            "filename": file.filename,
-            "file_id": uploaded.get("id"),
-            "view_link": uploaded.get("webViewLink")
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-
-@app.post("/upload-multi")
-async def upload_multiple_files(files: List[UploadFile] = File(...)):
-    results = []
-
-    try:
+        links = []
         for file in files:
-            file_content = await file.read()
-            media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=file.content_type, resumable=True)
+            link = await upload_file_to_gdrive(file)
+            links.append(link)
 
-            body = {
-                "name": file.filename
-            }
+        # Compose Telegram Message
+        if len(links) == 1:
+            message = f"อัปโหลดสำเร็จ: {links[0]}"
+        else:
+            message = "ไฟล์ที่อัปโหลดสำเร็จ:\n" + "\n".join(f"- {link}" for link in links)
 
-            uploaded = drive_service.files().create(
-                body=body,
-                media_body=media,
-                fields="id,webViewLink",
-                supportsAllDrives=True
-            ).execute()
-
-            results.append({
-                "filename": file.filename,
-                "file_id": uploaded.get("id"),
-                "view_link": uploaded.get("webViewLink")
-            })
-
-            await send_telegram_message(f"📂 Uploaded: {file.filename}\n🔗 {uploaded.get('webViewLink')}")
-
-        return {"uploaded_files": results}
+        await send_telegram_message(message)
+        return UploadResponse(files=links)
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Multi-upload failed: {str(e)}")
+        await send_telegram_message(f"❗ Upload or Push Failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/")
+async def root():
+    return {"status": "online"}
