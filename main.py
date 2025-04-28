@@ -17,6 +17,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # ดึง Telegram Token
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # ดึง Telegram Chat ID จาก ENV
 GDRIVE_CREDENTIAL_PATH = "/etc/secrets/gdrive_sa.json"  # โหลดไฟล์ Secret
 GDRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
+SHEET_ID = os.getenv("SHEET_ID")  # Google Sheets ID สำหรับดึงข้อมูล
 
 # === Helper Functions ===
 
@@ -25,6 +26,12 @@ def get_drive_service():
         GDRIVE_CREDENTIAL_PATH, scopes=GDRIVE_SCOPES
     )
     return build("drive", "v3", credentials=credentials)
+
+def get_sheets_service():
+    credentials = service_account.Credentials.from_service_account_file(
+        GDRIVE_CREDENTIAL_PATH, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    )
+    return build('sheets', 'v4', credentials=credentials)
 
 async def send_telegram_message(message: str):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -46,6 +53,11 @@ async def upload_file_to_gdrive(file: UploadFile) -> str:
     file_id = uploaded_file.get("id")
     return f"https://drive.google.com/uc?id={file_id}&export=download"
 
+def get_google_sheets_data():
+    service = get_sheets_service()
+    result = service.spreadsheets().values().get(spreadsheetId=SHEET_ID, range="Sheet1!A1:C10").execute()
+    return result.get('values', [])
+
 # === API Models ===
 
 class UploadResponse(BaseModel):
@@ -60,6 +72,10 @@ async def upload_gdrive(files: List[UploadFile] = File(...)):
         for file in files:
             link = await upload_file_to_gdrive(file)
             links.append(link)
+
+        # ดึงข้อมูลจาก Google Sheets
+        sheet_data = get_google_sheets_data()
+        print(f"Data from Google Sheets: {sheet_data}")
 
         # Compose Telegram Message
         if len(links) == 1:
