@@ -17,7 +17,7 @@ GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SHEET_ID = os.getenv("SHEET_ID")
-CREDENTIAL_PATH = "token.json"
+CREDENTIAL_PATH = "/etc/secrets/gdrive_sa.json"
 
 # === Google API Helpers ===
 
