@@ -76,8 +76,8 @@ class UploadResponse(BaseModel):
 # === Endpoints ===
 
 @app.get("/")
-def root():  # ping
-    return {"status": "FastAPI is running"}
+def root():
+    return {"status": "FastAPI is running"}  # Force change
 
 @app.post("/upload", response_model=UploadResponse)
 async def upload(files: List[UploadFile] = File(...)):
