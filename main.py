@@ -18,8 +18,6 @@ GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SHEET_ID = os.getenv("SHEET_ID")
-
-# === Load credentials from ENV variable ===
 SERVICE_ACCOUNT_JSON = os.getenv("SERVICE_ACCOUNT_JSON")
 
 if not SERVICE_ACCOUNT_JSON:
