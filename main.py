@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel
 from typing import List
 import os
@@ -6,81 +6,89 @@ from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
+import aiohttp
 import io
 
 load_dotenv()
-
 app = FastAPI()
 
-# === Google Drive Upload ===
+# === Config ===
+GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+SHEET_ID = os.getenv("SHEET_ID")
+CREDENTIAL_PATH = "token.json"
+
+# === Google API Helpers ===
 
 def get_drive_service():
     creds = service_account.Credentials.from_service_account_file(
-        "token.json",
+        CREDENTIAL_PATH,
         scopes=["https://www.googleapis.com/auth/drive"]
     )
-    service = build("drive", "v3", credentials=creds)
-    return service
-
-async def upload_file_to_gdrive(file: UploadFile) -> str:
-    folder_id = os.getenv("GDRIVE_FOLDER_ID")
-    service = get_drive_service()
-
-    file_metadata = {
-        "name": file.filename,
-        "parents": [folder_id]
-    }
-    media = MediaIoBaseUpload(io.BytesIO(await file.read()), mimetype=file.content_type)
-    uploaded_file = service.files().create(body=file_metadata, media_body=media, fields="id").execute()
-    file_id = uploaded_file.get("id")
-    return f"https://drive.google.com/uc?id={file_id}&export=download"
-
-# === Google Sheets Read ===
+    return build("drive", "v3", credentials=creds)
 
 def get_sheets_service():
     creds = service_account.Credentials.from_service_account_file(
-        "token.json",
+        CREDENTIAL_PATH,
         scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
     )
-    service = build("sheets", "v4", credentials=creds)
-    return service
+    return build("sheets", "v4", credentials=creds)
+
+async def send_telegram_message(message: str):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+    async with aiohttp.ClientSession() as session:
+        await session.post(url, data=payload)
+
+async def upload_file_to_gdrive(file: UploadFile) -> str:
+    service = get_drive_service()
+    metadata = {"name": file.filename}
+    if GDRIVE_FOLDER_ID:
+        metadata["parents"] = [GDRIVE_FOLDER_ID]
+    media = MediaIoBaseUpload(io.BytesIO(await file.read()), mimetype=file.content_type)
+    uploaded = service.files().create(body=metadata, media_body=media, fields="id").execute()
+    file_id = uploaded.get("id")
+    return f"https://drive.google.com/uc?id={file_id}&export=download"
 
 def get_google_sheets_data():
     service = get_sheets_service()
-    sheet_id = os.getenv("SHEET_ID")
-    result = service.spreadsheets().values().get(spreadsheetId=sheet_id, range="Sheet1!A1:C10").execute()
-    return result.get('values', [])
+    result = service.spreadsheets().values().get(
+        spreadsheetId=SHEET_ID,
+        range="Sheet1!A1:C10"
+    ).execute()
+    return result.get("values", [])
 
-# === API Models ===
+# === Models ===
 
 class UploadResponse(BaseModel):
     links: List[str]
     sheet_data: List[List[str]]
 
+# === Endpoints ===
+
 @app.get("/")
 def root():
     return {"status": "FastAPI is running"}
 
-@app.get("/ping")
-def ping():
-    return {"status": "pong"}
+@app.post("/upload", response_model=UploadResponse)
+async def upload(files: List[UploadFile] = File(...)):
+    try:
+        links = []
+        for file in files:
+            link = await upload_file_to_gdrive(file)
+            links.append(link)
 
-@app.get("/time")
-def time_now():
-    from datetime import datetime
-    return {"time": datetime.utcnow().isoformat()}
+        sheet_data = get_google_sheets_data()
+        await send_telegram_message(f"📎 Upload Success:
+" + "\n".join(links))
+        return UploadResponse(links=links, sheet_data=sheet_data)
+    except Exception as e:
+        await send_telegram_message(f"❗ Upload Failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/sheets")
 def read_sheet():
-    data = get_google_sheets_data()
-    return {"data": data}
-
-@app.post("/upload", response_model=UploadResponse)
-async def upload_gdrive(files: List[UploadFile] = File(...)):
-    links = []
-    for file in files:
-        link = await upload_file_to_gdrive(file)
-        links.append(link)
-
-    sheet_data = get_google_sheets_data()
-    return UploadResponse(links=links, sheet_data=sheet_data)
+    return {"data": get_google_sheets_data()}
