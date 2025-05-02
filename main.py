@@ -76,7 +76,7 @@ class UploadResponse(BaseModel):
 # === Endpoints ===
 
 @app.get("/")
-def root():
+def root():  # ping
     return {"status": "FastAPI is running"}
 
 @app.post("/upload", response_model=UploadResponse)
