@@ -2,12 +2,13 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel
 from typing import List
 import os
+import json
+import aiohttp
+import io
 from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
-import aiohttp
-import io
 
 load_dotenv()
 app = FastAPI()
@@ -17,20 +18,27 @@ GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SHEET_ID = os.getenv("SHEET_ID")
-CREDENTIAL_PATH = "/etc/secrets/gdrive_sa.json"
+
+# === Load credentials from ENV variable ===
+SERVICE_ACCOUNT_JSON = os.getenv("SERVICE_ACCOUNT_JSON")
+
+if not SERVICE_ACCOUNT_JSON:
+    raise RuntimeError("SERVICE_ACCOUNT_JSON env variable is missing.")
+
+CREDENTIALS_DICT = json.loads(SERVICE_ACCOUNT_JSON)
 
 # === Google API Helpers ===
 
 def get_drive_service():
-    creds = service_account.Credentials.from_service_account_file(
-        CREDENTIAL_PATH,
+    creds = service_account.Credentials.from_service_account_info(
+        CREDENTIALS_DICT,
         scopes=["https://www.googleapis.com/auth/drive"]
     )
     return build("drive", "v3", credentials=creds)
 
 def get_sheets_service():
-    creds = service_account.Credentials.from_service_account_file(
-        CREDENTIAL_PATH,
+    creds = service_account.Credentials.from_service_account_info(
+        CREDENTIALS_DICT,
         scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
     )
     return build("sheets", "v4", credentials=creds)
