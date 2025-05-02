@@ -82,8 +82,8 @@ async def upload(files: List[UploadFile] = File(...)):
             links.append(link)
 
         sheet_data = get_google_sheets_data()
-        await send_telegram_message(f"📎 Upload Success:
-" + "\n".join(links))
+        message = "📎 Upload Success:\n" + "\n".join(links)
+        await send_telegram_message(message)
         return UploadResponse(links=links, sheet_data=sheet_data)
     except Exception as e:
         await send_telegram_message(f"❗ Upload Failed: {str(e)}")
